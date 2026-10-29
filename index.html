@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI-PFVI - Peringatan Dini Karhutla Gambut</title>
+<meta name="theme-color" content="#14532d">
+<link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script>tailwind.config={theme:{extend:{colors:{bg:'rgb(var(--bg)/<alpha-value>)',card:'rgb(var(--card)/<alpha-value>)',ink:'rgb(var(--ink)/<alpha-value>)',mute:'rgb(var(--mute)/<alpha-value>)',line:'rgb(var(--line)/<alpha-value>)',accent:'#f97316'}}}}</script>
+<style>
+:root{--bg:244 248 245;--card:255 255 255;--ink:17 36 28;--mute:90 110 100;--line:218 228 221}
+.dark{--bg:7 20 14;--card:15 33 25;--ink:230 240 234;--mute:150 170 160;--line:35 58 46;color-scheme:dark}
+body{background:rgb(var(--bg));color:rgb(var(--ink))}
+.hero{background:linear-gradient(135deg,#052e16,#14532d 55%,#166534)}
+.tab{padding:.375rem .9rem;border-radius:9999px;color:#e7f5ec;font-size:.875rem;white-space:nowrap}
+.tab.on{background:#f97316;color:#fff}
+.in{width:100%;border:1px solid rgb(var(--line));background:rgb(var(--card));color:rgb(var(--ink));border-radius:.6rem;padding:.45rem .6rem}
+.btn{border-radius:.6rem;padding:.45rem .9rem;background:#166534;color:#fff;font-size:.875rem}
+.btn:disabled{opacity:.6}
+#map{height:62vh;min-height:360px;isolation:isolate;border-radius:1rem}
+.lbl{background:none;border:0;box-shadow:none;color:#fff;font-weight:700;font-size:10px;padding:0}
+.lbl:before{display:none}
+th,td{padding:.4rem .6rem;text-align:left;vertical-align:top}
+@media print{header,#ctl,.noprint{display:none!important}}
+</style>
+</head>
+<body class="min-h-screen">
+<header class="hero text-white">
+  <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center gap-3">
+    <div class="flex-1 min-w-[220px]">
+      <div class="text-xl font-bold">AI-PFVI</div>
+      <div class="text-xs text-white/80">Peat Fire Vulnerability Index - peringatan dini karhutla lahan gambut</div>
+    </div>
+    <div class="flex items-center gap-2 text-sm">
+      <span id="dot" class="inline-block w-2.5 h-2.5 rounded-full bg-yellow-400"></span><span id="net">Menghubungkan</span>
+      <button id="fs-" class="tab bg-white/10" title="Perkecil font">A-</button>
+      <button id="fs+" class="tab bg-white/10" title="Perbesar font">A+</button>
+      <button id="dk" class="tab bg-white/10" title="Terang/gelap">Gelap</button>
+    </div>
+  </div>
+  <nav class="max-w-7xl mx-auto px-4 pb-3 flex gap-2 overflow-x-auto">
+    <button class="tab" data-t="dash">Dashboard</button><button class="tab" data-t="peta">Peta Risiko</button>
+    <button class="tab" data-t="rek">Rekomendasi &amp; WhatsApp</button><button class="tab" data-t="wil">Wilayah</button>
+    <button class="tab" data-t="log">Log Riwayat</button><button class="tab" data-t="info">Alur, Bisnis &amp; Perbandingan</button>
+  </nav>
+</header>
+
+<main class="max-w-7xl mx-auto px-4 py-4 space-y-3">
+  <div id="alert" class="hidden rounded-xl bg-red-600 text-white px-4 py-2 text-sm"></div>
+  <section id="ctl" class="rounded-2xl bg-card border border-line p-3 grid gap-3 md:grid-cols-4 items-end">
+    <label class="text-xs text-mute">Wilayah<select id="wsel" class="in mt-1 text-sm"></select></label>
+    <div><div class="text-xs text-mute mb-1">Skenario cuaca</div>
+      <div id="skn" class="flex gap-1 text-sm">
+        <button data-s="normal" class="in !w-auto flex-1">Normal</button><button data-s="kemarau" class="in !w-auto flex-1">Kemarau</button><button data-s="hujan" class="in !w-auto flex-1">Hujan</button>
+      </div></div>
+    <label class="text-xs text-mute">Kecepatan angin: <b id="kv" class="text-ink"></b> km/jam<input id="kmh" type="range" min="0" max="80" class="w-full accent-green-700"></label>
+    <label class="text-xs text-mute">Angin dari: <b id="dv" class="text-ink"></b><input id="dari" type="range" min="0" max="359" class="w-full accent-green-700"></label>
+  </section>
+
+  <section id="s-dash">
+    <div id="stat" class="text-sm text-mute mb-2"></div>
+    <div id="blk" class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"></div>
+    <div id="det" class="mt-3 grid gap-3 lg:grid-cols-3"></div>
+  </section>
+
+  <section id="s-peta" class="hidden">
+    <div class="relative"><div id="map"></div>
+      <div id="wc" class="absolute top-2 right-2 z-[1100] bg-card/95 border border-line rounded-xl px-3 py-2 text-xs text-center"></div></div>
+    <div class="mt-2 flex flex-wrap items-center gap-4 text-xs text-mute">
+      <span class="flex items-center gap-1">Risiko <i class="inline-block w-32 h-2.5 rounded" style="background:linear-gradient(90deg,#22c55e,#eab308 40%,#ef4444 70%,#7f1d1d)"></i> 0 - 1</span>
+      <span>Sensor: <b style="color:#16a34a">Aman</b> / <b style="color:#ca8a04">Waspada</b> / <b style="color:#dc2626">Kritis</b></span>
+      <span>Panah oranye = arah perambatan risiko dari sensor kritis</span><span>Titik biru = lokasi pembasahan kanal</span>
+      <label><input type="checkbox" id="tg" checked> Heatmap</label><label><input type="checkbox" id="ts" checked> Sensor</label><label><input type="checkbox" id="ta" checked> Panah angin</label>
+    </div>
+  </section>
+
+  <section id="s-rek" class="hidden grid gap-3 lg:grid-cols-2">
+    <div id="recs" class="space-y-3"></div>
+    <div class="rounded-2xl bg-card border border-line p-4 space-y-3 h-fit">
+      <div class="font-semibold">Kirim peringatan WhatsApp</div>
+      <div id="mode" class="text-xs text-mute"></div>
+      <label class="text-xs text-mute">Blok<select id="wblok" class="in mt-1"><option>A</option><option>B</option><option>C</option><option>D</option></select></label>
+      <label class="text-xs text-mute">Nomor WhatsApp<input id="no" class="in mt-1" inputmode="tel" placeholder="081234567890"></label>
+      <div id="nopv" class="text-xs text-mute"></div>
+      <label class="text-xs text-mute">Pesan (bisa diedit)<textarea id="msg" rows="9" class="in mt-1 text-sm"></textarea></label>
+      <div class="flex gap-2"><button id="snd" class="btn">Kirim WhatsApp</button><button id="rst" class="in !w-auto text-sm">Muat ulang pesan</button></div>
+      <div id="res" class="text-sm"></div>
+    </div>
+  </section>
+
+  <section id="s-wil" class="hidden"><div id="wgrid" class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"></div></section>
+
+  <section id="s-log" class="hidden rounded-2xl bg-card border border-line p-4">
+    <div class="flex flex-wrap gap-2 items-center mb-3 noprint">
+      <select id="lf" class="in !w-auto text-sm"><option value="cur">Wilayah terpilih</option><option value="all">Semua wilayah</option></select>
+      <select id="lj" class="in !w-auto text-sm"><option value="">Semua jenis</option><option>anomali</option><option>tindakan</option><option>notifikasi</option></select>
+      <button id="pdf" class="btn ml-auto">Export PDF</button>
+    </div>
+    <div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-mute"><th>Tanggal</th><th>Jenis</th><th>Wilayah</th><th>Keterangan</th></tr></thead><tbody id="lb"></tbody></table></div>
+  </section>
+
+  <section id="s-info" class="hidden space-y-4"><div id="info"></div></section>
+</main>
+<footer class="text-center text-xs text-mute py-6">Prototipe AI-PFVI - data sensor berupa simulasi</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+{% raw %}
+<script>
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const store={get(k,d){try{return localStorage.getItem(k)??d}catch(e){return d}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
+const COL={Aman:'#16a34a',Waspada:'#eab308',Kritis:'#dc2626'};
+const WIL=[['pulang-pisau','Pulang Pisau (Kalteng)'],['kapuas','Kapuas (Kalteng)'],['kotim','Kotawaringin Timur (Kalteng)'],['kobar','Kotawaringin Barat (Kalteng)'],['seruyan','Seruyan (Kalteng)'],['katingan','Katingan (Kalteng)'],['sukamara','Sukamara (Kalteng)'],['barsel','Barito Selatan (Kalteng)'],['bartim','Barito Timur (Kalteng)'],['oki','Ogan Komering Ilir (Sumsel)'],['ketapang','Ketapang (Kalbar)'],['sintang','Sintang (Kalbar)'],['batola','Barito Kuala (Kalsel)'],['tapin','Tapin (Kalsel)']];
+const ARAH=['Utara','Timur Laut','Timur','Tenggara','Selatan','Barat Daya','Barat','Barat Laut'];
+const arah=d=>ARAH[Math.round((((d%360)+360)%360)/45)%8];
+const ST={wil:store.get('wil','pulang-pisau'),skn:'normal',kmh:14,dari:135,blok:'A',tab:'dash',data:null,seq:0,dirty:false,logs:[],wrows:[]};
+if(!WIL.some(w=>w[0]===ST.wil))ST.wil='pulang-pisau';
+const stt=v=>v>.7?'Kritis':v>=.4?'Waspada':'Aman';
+
+/* ---------- tema & font ---------- */
+let dark=store.get('dark','0')==='1',fs=+store.get('fs','16');
+function applyTheme(){document.documentElement.classList.toggle('dark',dark);document.documentElement.style.fontSize=fs+'px';$('#dk').textContent=dark?'Terang':'Gelap'}
+$('#dk').onclick=()=>{dark=!dark;store.set('dark',dark?'1':'0');applyTheme()};
+$('#fs-').onclick=()=>{fs=Math.max(13,fs-1);store.set('fs',fs);applyTheme()};
+$('#fs+').onclick=()=>{fs=Math.min(20,fs+1);store.set('fs',fs);applyTheme()};
+
+/* ---------- kontrol ---------- */
+$('#wsel').innerHTML=WIL.map(w=>`<option value="${w[0]}">${w[1]}</option>`).join('');
+$('#wsel').value=ST.wil;
+function ctlLabels(){$('#kv').textContent=ST.kmh;$('#dv').textContent=`${arah(ST.dari)} (${ST.dari}\u00b0), menuju ${arah(ST.dari+180)}`;
+  $$('#skn button').forEach(b=>{const on=b.dataset.s===ST.skn;b.style.background=on?'#166534':'';b.style.color=on?'#fff':''})}
+let tm;const later=()=>{clearTimeout(tm);tm=setTimeout(refresh,250)};
+function refresh(){load();if(ST.tab==='wil')loadWil()}
+$('#wsel').onchange=e=>{ST.wil=e.target.value;store.set('wil',ST.wil);ST.dirty=false;refresh()};
+$$('#skn button').forEach(b=>b.onclick=()=>{ST.skn=b.dataset.s;ctlLabels();ST.dirty=false;refresh()});
+$('#kmh').oninput=e=>{ST.kmh=+e.target.value;ctlLabels();later()};
+$('#dari').oninput=e=>{ST.dari=+e.target.value;ctlLabels();later()};
+$('#kmh').value=ST.kmh;$('#dari').value=ST.dari;
+
+/* ---------- tab ---------- */
+function go(t){ST.tab=t;$$('main>section[id^=s-]').forEach(s=>s.classList.toggle('hidden',s.id!=='s-'+t));
+  $$('.tab[data-t]').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
+  $('#ctl').classList.toggle('hidden',t==='info'||t==='log');
+  history.replaceState(null,'','#'+t);
+  if(t==='peta'){initMap();setTimeout(()=>{map.invalidateSize();updateMap()},80)}
+  if(t==='wil')loadWil();if(t==='log')loadLog();render()}
+$$('.tab[data-t]').forEach(b=>b.onclick=()=>go(b.dataset.t));
+
+/* ---------- data ---------- */
+const net=ok=>{$('#dot').style.background=ok?'#22c55e':'#ef4444';$('#net').textContent=ok?'Terhubung':'Server terputus'};
+const qs=()=>new URLSearchParams({skenario:ST.skn,kmh:ST.kmh,dari:ST.dari,wilayah:ST.wil});
+async function load(){const my=++ST.seq;
+  try{const r=await fetch('/api/data?'+qs());if(!r.ok)throw 0;const d=await r.json();if(my!==ST.seq)return;ST.data=d;net(true);render()}
+  catch(e){if(my===ST.seq)net(false)}}
+
+function cardBlok(b){const x=ST.data.blok[b],c=COL[x.status];
+  return `<button data-b="${b}" class="text-left rounded-2xl border-2 bg-card p-4 ${ST.blok===b?'border-accent':'border-line'}">
+  <div class="flex justify-between items-center"><b>Blok ${b}</b><span class="px-2 py-0.5 rounded-full text-xs text-white" style="background:${c}">${x.status}</span></div>
+  <div class="text-3xl font-bold mt-1" style="color:${c}">${x.pfvi.toFixed(2)}</div>
+  <div class="relative h-2 rounded bg-line mt-1"><div class="h-2 rounded" style="width:${x.pfvi*100}%;background:${c}"></div><i class="absolute top-0 h-2 w-px bg-ink/50" style="left:40%"></i><i class="absolute top-0 h-2 w-px bg-ink/50" style="left:70%"></i></div>
+  <div class="grid grid-cols-2 gap-x-2 text-xs text-mute mt-2"><span>Kelembapan ${x.sm}%</span><span>Muka air ${x.wtd} cm</span><span>Suhu tanah ${x.ts}\u00b0C</span><span>Evaporasi ${x.ev} mm/hr</span></div>
+  <p class="text-xs mt-2">${esc(x.kalimat)}</p></button>`}
+
+function chart(x){const W=640,H=240,l=34,r=10,T=10,B=24,X=i=>l+i*(W-l-r)/20,Y=v=>T+(1-v)*(H-T-B);
+  const P=a=>a.map(([i,v])=>X(i).toFixed(1)+','+Y(v).toFixed(1)).join(' ');
+  const h=x.hist.map((v,i)=>[i,v]),f=[[6,x.pfvi],...x.fc.map((v,k)=>[7+k,v])];
+  let s=`<svg viewBox="0 0 ${W} ${H}" class="w-full" role="img" aria-label="Riwayat 7 hari dan prakiraan 14 hari"><rect x="${l}" y="${Y(1)}" width="${W-l-r}" height="${Y(.7)-Y(1)}" fill="#dc2626" opacity=".12"/>`;
+  [0,.2,.4,.6,.8,1].forEach(v=>s+=`<line x1="${l}" x2="${W-r}" y1="${Y(v)}" y2="${Y(v)}" stroke="currentColor" opacity=".12"/><text x="${l-4}" y="${Y(v)+3}" font-size="10" text-anchor="end" fill="currentColor" opacity=".6">${v}</text>`);
+  s+=`<line x1="${l}" x2="${W-r}" y1="${Y(.7)}" y2="${Y(.7)}" stroke="#dc2626" stroke-dasharray="4 3"/><line x1="${l}" x2="${W-r}" y1="${Y(.4)}" y2="${Y(.4)}" stroke="#eab308" stroke-dasharray="4 3"/>`;
+  s+=`<polyline points="${P(h)}" fill="none" stroke="#166534" stroke-width="2.5"/><polyline points="${P(f)}" fill="none" stroke="#f97316" stroke-width="2.5" stroke-dasharray="6 4"/>`;
+  f.slice(1).forEach(([i,v])=>s+=`<circle cx="${X(i)}" cy="${Y(v)}" r="3" fill="#f97316"><title>Hari +${i-6}: ${v}</title></circle>`);
+  s+=`<circle cx="${X(6)}" cy="${Y(x.pfvi)}" r="5" fill="${COL[x.status]}" stroke="#fff" stroke-width="2"/>`;
+  [[0,'-6 hari'],[6,'Hari ini'],[13,'+7'],[20,'+14']].forEach(([i,t])=>s+=`<text x="${X(i)}" y="${H-6}" font-size="10" text-anchor="middle" fill="currentColor" opacity=".7">${t}</text>`);
+  return s+'</svg>'}
+
+function render(){const d=ST.data;if(!d)return;
+  const bl=d.blok,kr=Object.values(bl).filter(x=>x.status==='Kritis').length,w=d.angin;
+  const al=$('#alert');al.classList.toggle('hidden',!kr);al.textContent=kr?`${kr} blok berada di Zona Kritis di ${d.wilayah.nama}. Segera lakukan pembasahan kanal.`:'';
+  $('#stat').innerHTML=`<b class="text-ink">${esc(d.wilayah.nama)}</b>, ${esc(d.wilayah.prov)} | Angin dari ${w.dari_nama} ${w.kmh.toFixed(0)} km/jam, risiko merambat ke ${w.tuju_nama} | Diperbarui ${d.waktu}`;
+  $('#mode').textContent=d.mode_wa==='gateway'?'Mode: gateway WhatsApp (pesan dikirim otomatis)':'Mode: tautan wa.me (pesan dibuka manual di WhatsApp)';
+  if(ST.tab==='dash'){
+    $('#blk').innerHTML=[...'ABCD'].map(cardBlok).join('');
+    const x=bl[ST.blok],sn=d.sensor.filter(s=>s.blok===ST.blok);
+    $('#det').innerHTML=`<div class="lg:col-span-2 rounded-2xl bg-card border border-line p-4"><div class="font-semibold mb-1">Blok ${ST.blok}: riwayat 7 hari dan prakiraan 14 hari (model Ridge)</div>${chart(x)}
+      <div class="text-xs text-mute">Garis hijau = riwayat, oranye putus-putus = prakiraan. Zona merah di atas 0,7 (kritis), garis kuning 0,4 (waspada).</div></div>
+      <div class="rounded-2xl bg-card border border-line p-4 text-sm space-y-2"><div class="font-semibold">${esc(x.kalimat)}</div>
+      <div>Masuk zona kritis: <b>${x.status==='Kritis'?'sudah kritis':x.lead?x.lead+' hari lagi':'tidak dalam 14 hari'}</b></div>
+      <div>Indeks rambat api: <b>${x.R}</b></div>
+      <div>${x.rec?`Pembasahan kanal ${esc(x.rec.sektor)}: ${x.rec.tanggal} ${x.rec.jam}, ${x.rec.durasi_jam} jam, titik ${x.rec.lat.toFixed(4)}, ${x.rec.lon.toFixed(4)}`:'Belum perlu pembasahan, pantau rutin.'}</div>
+      <table class="w-full text-xs"><thead class="text-mute"><tr><th>Sensor</th><th>Sm%</th><th>Wtd cm</th><th>Ts\u00b0C</th><th>Ev</th><th>PFVI</th></tr></thead><tbody>${sn.map(s=>`<tr><td>${s.id}</td><td>${s.sm}</td><td>${s.wtd}</td><td>${s.ts}</td><td>${s.ev}</td><td style="color:${COL[s.status]}"><b>${s.pfvi}</b></td></tr>`).join('')}</tbody></table></div>`}
+  if(ST.tab==='peta')updateMap();
+  if(ST.tab==='rek')renderRek()}
+$('#blk').onclick=e=>{const b=e.target.closest('[data-b]');if(b){ST.blok=b.dataset.b;$('#wblok').value=ST.blok;ST.dirty=false;render()}};
+
+/* ---------- peta ---------- */
+let map,LG,LS,LA,LC,rects=[],mk={},cm={},lastW='';
+const HS=[[0,[34,197,94]],[.4,[234,179,8]],[.7,[239,68,68]],[1,[127,29,29]]];
+function heat(v){v=Math.max(0,Math.min(1,v));for(let i=1;i<HS.length;i++){if(v<=HS[i][0]){const[a,A]=HS[i-1],[b,B]=HS[i],t=(v-a)/(b-a);return`rgb(${A.map((x,k)=>Math.round(x+(B[k]-x)*t)).join(',')})`}}}
+function initMap(){if(map||typeof L==='undefined')return;
+  map=L.map('map').setView([-2.745,114.26],13);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'}).addTo(map);
+  map.createPane('grid').style.zIndex=380;map.createPane('arr').style.zIndex=420;map.createPane('sen').style.zIndex=450;
+  LG=L.layerGroup().addTo(map);LA=L.layerGroup().addTo(map);LS=L.layerGroup().addTo(map);LC=L.layerGroup().addTo(map);
+  [['#tg',LG],['#ts',LS],['#ta',LA]].forEach(([i,g])=>$(i).onchange=e=>e.target.checked?map.addLayer(g):map.removeLayer(g))}
+function updateMap(){if(!map||!ST.data)return;const d=ST.data,g=d.grid,n=g.cells.length,m=g.cells[0].length,w=d.angin;
+  if(lastW!==ST.wil){lastW=ST.wil;map.setView([d.wilayah.lat,d.wilayah.lon],13)}
+  if(rects.length!==n*m){LG.clearLayers();rects=[];for(let i=0;i<n*m;i++)rects.push(L.rectangle([[0,0],[0,0]],{pane:'grid',weight:0,fillOpacity:.55}).bindTooltip('-',{sticky:true}).addTo(LG))}
+  g.cells.forEach((row,r)=>row.forEach((v,c)=>{const t=rects[r*m+c];t.setBounds([[g.la1-(r+1)*g.dla,g.lo0+c*g.dlo],[g.la1-r*g.dla,g.lo0+(c+1)*g.dlo]]);t.setStyle({fillColor:heat(v)});t.setTooltipContent(`Risiko ${v.toFixed(2)} (${stt(v)})`)}));
+  d.sensor.forEach(s=>{let k=mk[s.id];if(!k){k=mk[s.id]=L.circleMarker([s.lat,s.lon],{pane:'sen',radius:11,color:'#fff',weight:2,fillOpacity:1}).bindPopup('').bindTooltip(s.id,{permanent:true,direction:'center',className:'lbl'}).addTo(LS)}
+    k.setLatLng([s.lat,s.lon]).setStyle({fillColor:COL[s.status]}).setPopupContent(`<b>${s.id}, Blok ${s.blok}</b><br>PFVI ${s.pfvi} (${s.status})<br>Kelembapan ${s.sm}% | Muka air ${s.wtd} cm<br>Suhu tanah ${s.ts}\u00b0C | Evaporasi ${s.ev} mm/hr`)});
+  LA.clearLayers();const br=w.tuju*Math.PI/180,len=400+w.kmh*25;
+  if(w.kmh>0)d.sensor.filter(s=>s.pfvi>.7).forEach(s=>{const e=[s.lat+Math.cos(br)*len/111000,s.lon+Math.sin(br)*len/111000];
+    L.polyline([[s.lat,s.lon],e],{pane:'arr',color:'#f97316',weight:3,dashArray:'6 4',interactive:false}).addTo(LA);
+    L.marker(e,{interactive:false,icon:L.divIcon({className:'',iconSize:[18,18],iconAnchor:[9,9],html:`<svg width="18" height="18" viewBox="0 0 18 18" style="transform:rotate(${w.tuju}deg)"><path d="M9 1L16 16L9 12L2 16Z" fill="#f97316" stroke="#fff"/></svg>`})}).addTo(LA)});
+  LC.clearLayers();cm={};
+  Object.values(d.blok).filter(x=>x.rec).forEach(x=>{cm[x.blok]=L.marker([x.rec.lat,x.rec.lon],{icon:L.divIcon({className:'',iconSize:[26,26],iconAnchor:[13,13],html:`<div style="width:26px;height:26px;border-radius:50%;background:#0284c7;color:#fff;border:2px solid #fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px">${x.blok}</div>`})}).bindPopup(`<b>Pembasahan kanal ${esc(x.rec.sektor)}</b><br>${x.rec.tanggal} ${x.rec.jam}, ${x.rec.durasi_jam} jam<br>${x.rec.lat.toFixed(4)}, ${x.rec.lon.toFixed(4)}`).addTo(LC)});
+  $('#wc').innerHTML=`<svg width="34" height="34" viewBox="0 0 18 18" style="transform:rotate(${w.tuju}deg);margin:auto"><path d="M9 1L16 16L9 12L2 16Z" fill="#f97316" stroke="#166534"/></svg>Menuju ${w.tuju_nama}<br>${w.kmh.toFixed(0)} km/jam`}
+
+/* ---------- rekomendasi & WhatsApp ---------- */
+function renderRek(){const d=ST.data;
+  $('#recs').innerHTML=[...'ABCD'].map(b=>{const x=d.blok[b],r=x.rec;return `<div class="rounded-2xl bg-card border border-line p-4 text-sm"><div class="flex justify-between"><b>Blok ${b}</b><span class="px-2 rounded-full text-xs text-white" style="background:${COL[x.status]}">${x.status} ${x.pfvi.toFixed(2)}</span></div>
+  <p class="mt-1">${esc(x.kalimat)}</p>${r?`<div class="mt-2 text-mute">Pembasahan kanal ${esc(r.sektor)}<br>${r.tanggal}, ${r.jam}, selama ${r.durasi_jam} jam<br>Titik ${r.lat.toFixed(4)}, ${r.lon.toFixed(4)}</div><button data-m="${b}" class="btn mt-2">Lihat di peta</button>`:'<div class="mt-2 text-mute">Pantau rutin, belum perlu pembasahan.</div>'}</div>`}).join('');
+  const m=$('#msg');if(!ST.dirty&&document.activeElement!==m)m.value=d.blok[$('#wblok').value].pesan}
+$('#recs').onclick=e=>{const b=e.target.closest('[data-m]');if(!b)return;go('peta');setTimeout(()=>{const k=cm[b.dataset.m];if(k){map.flyTo(k.getLatLng(),15);k.openPopup()}},250)};
+$('#wblok').onchange=()=>{ST.dirty=false;renderRek()};
+$('#msg').oninput=()=>ST.dirty=true;
+$('#rst').onclick=()=>{ST.dirty=false;renderRek()};
+function norm(raw){let n=String(raw||'').replace(/\D/g,'');if(n.startsWith('00'))n=n.slice(2);if(n.startsWith('620'))n='62'+n.slice(3);else if(n.startsWith('0'))n='62'+n.slice(1);else if(n.startsWith('8'))n='62'+n;return n.length>=10&&n.length<=15?n:''}
+$('#no').value=store.get('no','');
+$('#no').oninput=()=>{store.set('no',$('#no').value);const n=norm($('#no').value);$('#nopv').textContent=$('#no').value?(n?'Dikirim ke +'+n:'Nomor belum valid'):''};
+$('#no').oninput();
+const note=(t,c)=>`<div class="rounded-lg px-3 py-2 ${c}">${esc(t)}</div>`;
+const wl=(u,t)=>`<a href="${esc(u)}" target="_blank" rel="noopener" class="btn inline-block mt-2">${t}</a>`;
+$('#snd').onclick=async()=>{const no=norm($('#no').value),pesan=$('#msg').value.trim(),o=$('#res'),b=$('#snd');
+  if(!no)return o.innerHTML=note('Nomor tidak valid. Contoh: 081234567890','bg-red-100 text-red-800');
+  if(!pesan)return o.innerHTML=note('Pesan masih kosong.','bg-red-100 text-red-800');
+  b.disabled=true;b.textContent='Mengirim...';
+  try{const r=await fetch('/api/wa/kirim',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nomor:no,pesan,blok:$('#wblok').value,wilayah:ST.wil})});
+    const j=await r.json().catch(()=>({}));
+    if(j.ok)o.innerHTML=j.mode==='gateway'?note('Pesan terkirim lewat gateway WhatsApp.','bg-green-100 text-green-800'):note('Pesan siap dikirim. Tekan tombol untuk membuka WhatsApp.','bg-green-100 text-green-800')+wl(j.url,'Buka WhatsApp');
+    else o.innerHTML=note(j.error||'Gagal mengirim pesan.','bg-red-100 text-red-800')+(j.url?wl(j.url,'Kirim manual lewat WhatsApp'):'');
+  }catch(e){o.innerHTML=note('Server tidak dapat dihubungi.','bg-red-100 text-red-800')}
+  b.disabled=false;b.textContent='Kirim WhatsApp';if(ST.tab==='log')loadLog()};
+
+/* ---------- wilayah ---------- */
+async function loadWil(){try{const r=await fetch('/api/wilayah?'+qs());if(!r.ok)throw 0;const j=await r.json();ST.wrows=j.wilayah.sort((a,b)=>b.pfvi-a.pfvi);
+  $('#wgrid').innerHTML=ST.wrows.map(w=>`<button data-w="${w.id}" class="text-left rounded-2xl border-2 bg-card p-4 ${w.id===ST.wil?'border-accent':'border-line'}"><div class="font-semibold">${esc(w.nama)}</div><div class="text-xs text-mute">${esc(w.prov)}</div>
+  <div class="text-2xl font-bold mt-1" style="color:${COL[w.status]}">${w.pfvi.toFixed(2)} <span class="text-xs font-normal">${w.status}</span></div>
+  <div class="text-xs text-mute">${w.kritis} blok kritis${w.lead?' | kritis dalam '+w.lead+' hari':''}</div></button>`).join('')}catch(e){}}
+$('#wgrid').onclick=e=>{const b=e.target.closest('[data-w]');if(b){ST.wil=b.dataset.w;store.set('wil',ST.wil);$('#wsel').value=ST.wil;ST.dirty=false;go('dash');load()}};
+
+/* ---------- log & PDF ---------- */
+const rows=()=>ST.logs.filter(l=>($('#lf').value==='all'||l.wid===ST.wil)&&(!$('#lj').value||l.jenis===$('#lj').value)).sort((a,b)=>b.tgl.localeCompare(a.tgl));
+function drawLog(){$('#lb').innerHTML=rows().map(l=>`<tr class="border-t border-line"><td>${l.tgl}</td><td>${esc(l.jenis)}</td><td>${esc(l.wilayah)}</td><td>${esc(l.isi)}</td></tr>`).join('')||'<tr><td colspan="4" class="text-mute">Belum ada catatan.</td></tr>'}
+async function loadLog(){try{const r=await fetch('/api/log');if(!r.ok)throw 0;ST.logs=await r.json();drawLog()}catch(e){}}
+$('#lf').onchange=$('#lj').onchange=drawLog;
+$('#pdf').onclick=()=>{const J=window.jspdf&&window.jspdf.jsPDF;if(J){const d=new J();if(typeof d.autoTable==='function'){d.setFontSize(14);d.text('Log Riwayat AI-PFVI',14,16);d.setFontSize(9);d.text('Dicetak '+new Date().toLocaleString('id-ID'),14,22);
+  d.autoTable({startY:27,head:[['Tanggal','Jenis','Wilayah','Keterangan']],body:rows().map(r=>[r.tgl,r.jenis,r.wilayah,r.isi]),headStyles:{fillColor:[22,101,52]},styles:{fontSize:8}});d.save('log-ai-pfvi.pdf');return}}
+  window.print()};
+
+/* ---------- halaman info ---------- */
+const FLOW=[['1. Sensor IoT','Kelembapan tanah, muka air tanah, suhu tanah, dan evaporasi dibaca di 8 titik per wilayah (di prototipe: data simulasi).'],['2. MQTT broker','Sensor mengirim data berkala ke broker MQTT.'],['3. Cloud dan API Flask','Server menerima data, endpoint /api/data menyajikannya ke dashboard.'],['4. Mesin PFVI','Empat variabel dinormalisasi 0-1 lalu dibobot menjadi skor PFVI. Zona kritis jika skor di atas 0,7.']];
+const FL2=[['Peta risiko IDW','Interpolasi spasial antar sensor, ditambah dorongan angin dari sensor kritis.'],['Prakiraan 14 hari','Regresi Ridge (scikit-learn) atas tren 7 hari, disesuaikan skenario cuaca.'],['Status blok','Aman, Waspada, Kritis per blok.']];
+const FL3=[['5. Rekomendasi pembasahan kanal','Titik koordinat kanal, tanggal, jam, dan durasi pembasahan.'],['6. Notifikasi WhatsApp','Dikirim lewat gateway Fonnte atau tautan wa.me.'],['7. Kelompok tani bertindak','Kanal dibasahi, muka air naik, sensor membaca perubahan, lalu siklus berulang. Semua tercatat di log.']];
+const CMP=[['Waktu deteksi','Setelah api terlihat saat patroli','Setelah api memicu titik panas','Prediksi hingga 14 hari sebelum kritis'],['Resolusi','Per titik patroli','Piksel sekitar 375 m - 1 km','Per blok dan sensor lahan'],['Gangguan awan/asap','Tidak ada','Terhambat awan dan asap','Tidak terpengaruh (sensor langsung)'],['Variabel','Pengamatan visual','Suhu permukaan','Kelembapan, muka air, suhu tanah, evaporasi'],['Tindakan','Reaktif','Reaktif','Preventif: pembasahan kanal terjadwal'],['Notifikasi','Manual','Lewat portal data','Otomatis via WhatsApp']];
+const BIZ=[['Paket Kelompok Tani','Langganan ringan per kelompok: dashboard blok, peringatan WhatsApp, panduan pembasahan kanal.'],['B2B Perkebunan','Multi-blok, laporan PDF, integrasi API, dukungan teknis.'],['B2G Pemerintah Daerah','Pemantauan lintas wilayah dan peringatan dini terpusat untuk BPBD dan dinas terkait.'],['CSR / ESG','Perusahaan mendanai sensor dan langganan desa peduli api, dengan laporan dampak.']];
+const box=(a)=>`<div class="rounded-xl bg-card border border-line p-3 text-sm"><b>${a[0]}</b><div class="text-mute">${a[1]}</div></div>`,arr='<div class="text-center text-accent text-xl">&#9660;</div>';
+$('#info').innerHTML=`<div class="rounded-2xl bg-card border border-line p-4"><h2 class="font-bold text-lg mb-3">Alur sistem dari awal sampai akhir</h2><div class="space-y-1 max-w-3xl mx-auto">
+  ${FLOW.map(box).join(arr)}${arr}<div class="grid gap-2 md:grid-cols-3">${FL2.map(box).join('')}</div>${arr}${FL3.map(box).join(arr)}</div></div>
+  <div class="rounded-2xl bg-card border border-line p-4 text-sm space-y-1"><h2 class="font-bold text-lg">Rumus</h2>
+  <p>PFVI = 0,25 Sm' + 0,40 Wtd' + 0,15 Ts' + 0,20 Ev', skor 0-1</p><p>Sm' = (70 - Sm)/50, Wtd' = -Wtd/60, Ts' = (Ts - 26)/12, Ev' = Ev/8 (dibatasi 0-1)</p>
+  <p>Status: Kritis jika PFVI &gt; 0,7; Waspada 0,4 - 0,7; Aman &lt; 0,4. Muka air kritis -60 cm.</p>
+  <p>IDW: risiko = &Sigma;(PFVI<sub>i</sub>/D<sup>2</sup>) / &Sigma;(1/D<sup>2</sup>), ditambah dorongan angin. Arah perambatan = (arah asal angin + 180) mod 360.</p></div>
+  <div class="rounded-2xl bg-card border border-line p-4"><h2 class="font-bold text-lg mb-2">Model bisnis SaaS</h2><div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">${BIZ.map(box).join('')}</div></div>
+  <div class="rounded-2xl bg-card border border-line p-4 overflow-x-auto"><h2 class="font-bold text-lg mb-2">Perbandingan sistem</h2><table class="w-full text-sm"><thead><tr class="text-mute"><th>Aspek</th><th>Konvensional</th><th>Satelit hotspot</th><th class="text-accent">AI-PFVI</th></tr></thead><tbody>
+  ${CMP.map(r=>`<tr class="border-t border-line"><td><b>${r[0]}</b></td><td>${r[1]}</td><td>${r[2]}</td><td>${r[3]}</td></tr>`).join('')}</tbody></table></div>`;
+
+/* ---------- mulai ---------- */
+applyTheme();ctlLabels();
+const t0=location.hash.slice(1);go(['dash','peta','rek','wil','log','info'].includes(t0)?t0:'dash');
+load();setInterval(()=>{if(!document.hidden){load();if(ST.tab==='wil')loadWil();if(ST.tab==='log')loadLog()}},5000);
+if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}));
+</script>
+{% endraw %}
+</body>
+</html>
